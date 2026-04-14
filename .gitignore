@@ -1,0 +1,8 @@
+# Log files
+*.log
+
+# PowerShell module cache
+PSModuleAnalysisCache
+
+# Claude Code internal files
+.claude/
