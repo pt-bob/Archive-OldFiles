@@ -26,6 +26,8 @@
 param(
     [switch]$DryRun,
     [switch]$Recurse,
+    [switch]$Move,
+    [switch]$OnlyYear,
     [switch]$Help
 )
 
@@ -36,7 +38,7 @@ if ($Help) {
     Write-Host "Archives files older than a specified year to a destination directory." -ForegroundColor Gray
     Write-Host ""
     Write-Host "USAGE:" -ForegroundColor Yellow
-    Write-Host "  .\Archive-OldFiles.ps1 [-DryRun] [-Recurse] [-Help]"
+    Write-Host "  .\Archive-OldFiles.ps1 [-DryRun] [-Recurse] [-Move] [-Help]"
     Write-Host ""
     Write-Host "PARAMETERS:" -ForegroundColor Yellow
     Write-Host "  -DryRun    Show preview of files to be copied without executing."
@@ -44,6 +46,10 @@ if ($Help) {
     Write-Host ""
     Write-Host "  -Recurse   Include subdirectories when searching for files."
     Write-Host "             By default, only the root folder is searched."
+    Write-Host ""
+    Write-Host "  -Move       Move files instead of copying them (deletes from source)."
+    Write-Host ""
+    Write-Host "  -OnlyYear   Archive only files from the specified year instead of all files before it."
     Write-Host ""
     Write-Host "  -Help      Display this help message."
     Write-Host ""
@@ -98,17 +104,36 @@ if ([string]::IsNullOrWhiteSpace($extension)) {
 }
 
 # Prompt for cutoff year
-$yearInput = Read-Host "Enter year to archive BEFORE (files older than 1/1/YEAR), or leave blank for ALL files"
+if ($OnlyYear) {
+    $yearInput = Read-Host "Enter the SPECIFIC year to archive (e.g., 2022)"
+} else {
+    $yearInput = Read-Host "Enter year to archive BEFORE (files older than 1/1/YEAR), or leave blank for ALL files"
+}
 $cutoffYear = $null
-$cutoffDate = $null
+$startDate = $null
+$endDate = $null
+$minAgeDate = $null
 $maxAgeDate = $null
 
 if (-not [string]::IsNullOrWhiteSpace($yearInput)) {
     $cutoffYear = [int]$yearInput
-    # Calculate the cutoff date (January 1st of the specified year)
-    $cutoffDate = Get-Date -Year $cutoffYear -Month 1 -Day 1 -Hour 0 -Minute 0 -Second 0
-    # Format date for robocopy /MAXAGE parameter (YYYYMMDD)
-    $maxAgeDate = $cutoffDate.ToString("yyyyMMdd")
+    if ($OnlyYear) {
+        # For OnlyYear: Keep files between Jan 1, Year and Dec 31, Year
+        $startDate = Get-Date -Year $cutoffYear -Month 1 -Day 1 -Hour 0 -Minute 0 -Second 0
+        # End date is Jan 1 of the next year (exclusive)
+        $endDate = Get-Date -Year ($cutoffYear + 1) -Month 1 -Day 1 -Hour 0 -Minute 0 -Second 0
+
+        # Robocopy: /MAXAGE is "newer than", /MINAGE is "older than"
+        # To keep exactly Year X:
+        # /MAXAGE: X-01-01 (excludes files older than Jan 1, Year X)
+        # /MINAGE: (X+1)-01-01 (excludes files newer than Jan 1, Year X+1)
+        $maxAgeDate = $startDate.ToString("yyyyMMdd")
+        $minAgeDate = $endDate.ToString("yyyyMMdd")
+    } else {
+        # Default behavior: Keep files older than Jan 1, Year
+        $startDate = Get-Date -Year $cutoffYear -Month 1 -Day 1 -Hour 0 -Minute 0 -Second 0
+        $minAgeDate = $startDate.ToString("yyyyMMdd")
+    }
 }
 
 # Build log file path (in script directory)
@@ -125,9 +150,12 @@ $robocopyArgs = @(
     $extension
 )
 
-# Only add date filter if a cutoff year was specified
+# Only add date filters if a year was specified
+if ($minAgeDate) {
+    $robocopyArgs += "/MINAGE:$minAgeDate"
+}
 if ($maxAgeDate) {
-    $robocopyArgs += "/MINAGE:$maxAgeDate"
+    $robocopyArgs += "/MAXAGE:$maxAgeDate"
 }
 
 # Only include subdirectories if -Recurse is specified
@@ -135,10 +163,16 @@ if ($Recurse) {
     $robocopyArgs += "/E"
 }
 
+# Only move files if -Move is specified
+if ($Move) {
+    $robocopyArgs += "/MOVE"
+}
+
 $robocopyArgs += @(
     "/R:3"
     "/W:5"
-    "/NP"
+    "/MT:32"
+    "/TEE"
     "/LOG+:$logFile"
 )
 
@@ -147,17 +181,23 @@ Write-Host ("=" * 70) -ForegroundColor Cyan
 if ($DryRun) {
     Write-Host "ARCHIVE OPERATION PREVIEW (DRY-RUN)" -ForegroundColor Magenta
 } else {
-    Write-Host "ARCHIVE OPERATION PREVIEW" -ForegroundColor Cyan
+    $opType = if ($Move) { "MOVE" } else { "COPY" }
+    Write-Host "ARCHIVE OPERATION PREVIEW ($opType)" -ForegroundColor Cyan
 }
 Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Source:      $sourceDir" -ForegroundColor Yellow
 Write-Host "Destination: $destDir" -ForegroundColor Yellow
 Write-Host "Extension:   $extension" -ForegroundColor Yellow
-if ($cutoffDate) {
-    Write-Host "Cutoff Date: Files older than $($cutoffDate.ToString('MM/dd/yyyy'))" -ForegroundColor Yellow
+if ($startDate) {
+    Write-Host "Date Filter: " -NoNewline -ForegroundColor Yellow
+    if ($OnlyYear) {
+        Write-Host "Only files from the year $($cutoffYear)" -ForegroundColor Yellow
+    } else {
+        Write-Host "Files older than $($startDate.ToString('MM/dd/yyyy'))" -ForegroundColor Yellow
+    }
 } else {
-    Write-Host "Cutoff Date: ALL files (no date filter)" -ForegroundColor Yellow
+    Write-Host "Date Filter: ALL files (no date filter)" -ForegroundColor Yellow
 }
 if ($Recurse) {
     Write-Host "Subfolders:  Yes (recursive)" -ForegroundColor Yellow
@@ -178,10 +218,16 @@ if ($Recurse) {
     $getChildItemParams.Recurse = $true
 }
 
-if ($cutoffDate) {
-    $matchingFiles = Get-ChildItem @getChildItemParams |
-        Where-Object { $_.LastWriteTime -lt $cutoffDate } |
-        Sort-Object LastWriteTime
+if ($startDate) {
+    if ($OnlyYear) {
+        $matchingFiles = Get-ChildItem @getChildItemParams |
+            Where-Object { $_.LastWriteTime -ge $startDate -and $_.LastWriteTime -lt $endDate } |
+            Sort-Object LastWriteTime
+    } else {
+        $matchingFiles = Get-ChildItem @getChildItemParams |
+            Where-Object { $_.LastWriteTime -lt $startDate } |
+            Sort-Object LastWriteTime
+    }
 } else {
     $matchingFiles = Get-ChildItem @getChildItemParams |
         Sort-Object LastWriteTime
@@ -216,13 +262,19 @@ if ($totalFiles -gt 10) {
 
 # Build command preview string with proper quoting for display
 $commandPreview = "robocopy `"$sourceDir`" `"$destDir`" $extension"
+if ($minAgeDate) {
+    $commandPreview += " /MINAGE:$minAgeDate"
+}
 if ($maxAgeDate) {
-    $commandPreview += " /MINAGE:$maxAgeDate"
+    $commandPreview += " /MAXAGE:$maxAgeDate"
 }
 if ($Recurse) {
     $commandPreview += " /E"
 }
-$commandPreview += " /R:3 /W:5 /NP /LOG+:`"$logFile`""
+if ($Move) {
+    $commandPreview += " /MOVE"
+}
+$commandPreview += " /R:3 /W:5 /MT:32 /TEE /LOG+:`"$logFile`""
 
 Write-Host ""
 Write-Host "COMMAND TO EXECUTE:" -ForegroundColor Cyan
