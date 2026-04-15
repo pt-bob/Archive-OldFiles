@@ -141,7 +141,8 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ([string]::IsNullOrWhiteSpace($scriptDir)) {
     $scriptDir = Get-Location
 }
-$logFile = Join-Path -Path $scriptDir -ChildPath "Archive-OldFiles.log"
+$timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
+$logFile = Join-Path -Path $scriptDir -ChildPath "Archive-OldFiles_$timestamp.log"
 
 # Build robocopy arguments as a proper array (handles spaces automatically)
 $robocopyArgs = @(
