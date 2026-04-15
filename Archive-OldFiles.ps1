@@ -207,6 +207,8 @@ if ($Recurse) {
 Write-Host ""
 
 # Find matching files for preview using Get-ChildItem with -LiteralPath
+# Note: Date filtering via Where-Object overrides broad wildcards (like '*' or '*.*'),
+# ensuring only files meeting the date criteria are processed.
 Write-Host "Searching for matching files..." -ForegroundColor Gray
 $getChildItemParams = @{
     LiteralPath = $sourceDir
@@ -334,14 +336,29 @@ if ($confirm -eq 'Y' -or $confirm -eq 'y') {
         default { Write-Host "Robocopy completed with exit code: $exitCode" -ForegroundColor White }
     }
 
-    Write-Host ""
-    Write-Host "SUMMARY:" -ForegroundColor Cyan
-    Write-Host "  Files processed: $totalFiles" -ForegroundColor White
-    Write-Host ("  Total time:      {0:00}h {1:00}m {2:00}s" -f [int]$elapsedTime.TotalHours, $elapsedTime.Minutes, $elapsedTime.Seconds) -ForegroundColor White
-    Write-Host ""
+    # Build human-readable date filter description
+    $dateFilterDesc = if ($startDate) {
+        if ($OnlyYear) { "Only files from the year $($cutoffYear)" }
+        else { "Files older than $($startDate.ToString('MM/dd/yyyy'))" }
+    } else {
+        "ALL files (no date filter)"
+    }
 
-    Write-Host "Log file: $logFile" -ForegroundColor Cyan
+    Write-Host ""
     Write-Host ("=" * 70) -ForegroundColor Cyan
+    Write-Host "                      ARCHIVE OPERATION SUMMARY" -ForegroundColor Cyan
+    Write-Host ("=" * 70) -ForegroundColor Cyan
+    Write-Host " Operation Type : $($opType)" -ForegroundColor White
+    Write-Host " Source Folder  : $sourceDir" -ForegroundColor White
+    Write-Host " Destination    : $destDir" -ForegroundColor White
+    Write-Host " File Pattern   : $extension" -ForegroundColor White
+    Write-Host " Date Filter    : $dateFilterDesc" -ForegroundColor White
+    Write-Host ("-" * 70) -ForegroundColor Cyan
+    Write-Host " Total Files    : $totalFiles" -ForegroundColor White
+    Write-Host (" Total Time     : {0:00}h {1:00}m {2:00}s" -f [int]$elapsedTime.TotalHours, $elapsedTime.Minutes, $elapsedTime.Seconds) -ForegroundColor White
+    Write-Host " Log File       : $logFile" -ForegroundColor White
+    Write-Host ("=" * 70) -ForegroundColor Cyan
+    Write-Host ""
 } else {
     Write-Host ""
     Write-Host "Operation cancelled by user." -ForegroundColor Yellow
