@@ -306,8 +306,13 @@ if ($confirm -eq 'Y' -or $confirm -eq 'y') {
     Write-Host "Executing archive operation..." -ForegroundColor Green
     Write-Host ""
 
+    $startTime = Get-Date
+
     # Execute robocopy using call operator with argument array (handles spaces properly)
     & robocopy @robocopyArgs
+
+    $endTime = Get-Date
+    $elapsedTime = $endTime - $startTime
 
     $exitCode = $LASTEXITCODE
 
@@ -328,6 +333,12 @@ if ($confirm -eq 'Y' -or $confirm -eq 'y') {
         16 { Write-Host "Serious error. No files were copied." -ForegroundColor Red }
         default { Write-Host "Robocopy completed with exit code: $exitCode" -ForegroundColor White }
     }
+
+    Write-Host ""
+    Write-Host "SUMMARY:" -ForegroundColor Cyan
+    Write-Host "  Files processed: $totalFiles" -ForegroundColor White
+    Write-Host ("  Total time:      {0:00}h {1:00}m {2:00}s" -f [int]$elapsedTime.TotalHours, $elapsedTime.Minutes, $elapsedTime.Seconds) -ForegroundColor White
+    Write-Host ""
 
     Write-Host "Log file: $logFile" -ForegroundColor Cyan
     Write-Host ("=" * 70) -ForegroundColor Cyan
